@@ -3,190 +3,194 @@ from scipy.optimize import linear_sum_assignment
 
 
 class ExtendedKalmanThread(object):
+    """An implemention of the Kalman algorithm.
+    
+    An estimation is a juxtaposed with an observation at each time step.
     """
-        An implemention of the Kalman algorithm
-        An estimation is a juxtaposed with an observation at each time step
-    """
-    def __init__(self, t, x0, f, F, h, H, P0=0, Q=0, R=0):
+    def __init__(self, initial_state, 
+        state_function, state_function_jacobian,
+        sensor_function, sensor_function_jacobian,
+        initial_cov_estimation=0, cov_process_noise=0, cov_sensors=0,
+        ):
+        """Initialize a new ExtendedKalmanThread.
+        
+        x0, f, F, h, H, P0=0, Q=0, R=0):
+
+        initial_state (x0): column of initial state values
+        state_function, state_function_jacobian (f, F)
+        sensor_function, sensor_function_jacobian (h, H)
+        initial_cov_estimation (P0): initial covariance matrix of 
+            estimation process
+        cov_process_noise (Q): covariance matrix of process noise
+        cov_sensors (R): covariances matrix of sensors
         """
-            t: timesteps to intialize
-            x0: column of initial state values
-            P0: initial covariance matrix of estimation process
-            Q: covariance matrix of process noise
-            R: covariances matrix of sensors
-            f: state function
-            F: Jacobian of state function
-            h: sensor function
-            H: Jacobian of sensor function
+        ## Store variables
+        # Sensor functions
+        self.sensor_function = sensor_function
+        self.sensor_function_jacobian = sensor_function_jacobian
+        
+        # State functions
+        self.state_function = state_function
+        self.state_function_jacobian = state_function_jacobian
+        
+        # Covariance matrices
+        self.cov_process_noise = cov_process_noise
+        self.cov_sensors = cov_sensors
+        
+        # Initialize the state
+        self.current_state = initial_state
+        
+        # track the covariance matrix of estimation process
+        self.initial_cov_estimation = initial_cov_estimation
+        self.current_cov_estimation = initial_cov_estimation
+        self.det_cov_estimation = np.linalg.det(initial_cov_estimation)
+        
+        # Number of states and sensors
+        nstates = initial_state.size
+        nsensors = cov_sensors.shape[0]
+
+        # more stuff
+        self.observation_solution = self.sensor_function(self.current_state) # z
+        self.n_steps = 1 # k
+
+    def update_preview(self, current_observation):
+        """Provides a snapshot of one timestep of the algorithm
+        
+        z: current observation values    
+        
+        self.state_function is used to predict the next state from the
+        current state (self.x)
+        
+        
         """
+        ## Prediction Step
+        # Predict the new state
+        pred_state = self.state_function(self.current_state)
+        F_res = self.state_function_jacobian(self.current_state)
+        P_new = np.dot(np.dot(F_res, self.current_cov_estimation), 
+            F_res.T) + self.cov_process_noise
 
-
-        self.P0, self.Q, self.R, self.f, self.F, self.h, self.H,  = P0, Q, R, f, F, h, H
-        #x0 should be a column with size number of states
-        # assert x0.shape == (2, 1)
-        # assert h(x0).shape == (2, 1)
-        # assert P0.shape == (2, 2)
-        # assert Q.shape == (2, 2)
-        # assert R.shape == (2, 2)
-
-        nstates = x0.size
-        # assert nstates == 2
-        nsensors = R.shape[0]
-
-        # self.x = np.zeros((nstates, t))
-        # self.x[:, 0] = x0.T
-
-
-        # self.P = [P0]
-        # self.detP = [np.linalg.det(P0)]
-
-        # self.z = np.zeros((nsensors, t))
-        # self.z[:, 0] = h(x0).T
-
-        self.x = x0
-        self.P = P0
-        self.detP = np.linalg.det(P0)
-        self.z = h(x0)
-
-
-
-        self.k = 1
-
-    def update_preview(self, z):
-        """
-            Provides a snapshot of one timestep of the algorithm
-            z: current observation values    
-        """
-        x, P, Q, h, H, R, k, f, F = self.x, self.P, self.Q, self.h, self.H, self.R, self.k, self.f, self.F
-
-        #Prediction Step
-        # x_new = f(self.x[:, k-1])
-        x_new = f(x)
-        # assert x_new.shape == (2, 1)
-        # F_res = F(self.x[:, k-1])
-        F_res = F(x)
-        # assert(F_res).shape == (2, 2)
-        P_new = np.dot(np.dot(F_res, self.P), F_res.T) + Q
-        # assert(P_new).shape == (2, 2)
-
-
-        #Update Step
-        H_res = H(x_new)
-        h_res = h(x_new)
-        # assert(H_res).shape == (2, 2)
-        # assert(h_res).shape == (2, 1)
-
+        ## Update Step
+        H_res = self.sensor_function_jacobian(pred_state)
+        h_res = self.sensor_function(pred_state)
+        
         G = np.dot(
                     np.dot(P_new, H_res.T),
                     np.linalg.pinv(
                         np.dot(
                             np.dot(H_res, P_new), 
                             H_res.T
-                        ) + R
+                        ) + self.cov_sensors
                     )
                 )
 
 
-        # assert z.shape == h_res.shape
-
-        x_new = x_new + np.dot(G, z - h_res)
-# 
-        P_new = np.dot(np.eye(x_new.size) - np.dot(G, H_res), P_new)
+        pred_state = pred_state + np.dot(G, current_observation - h_res)
+        P_new = np.dot(np.eye(pred_state.size) - np.dot(G, H_res), P_new)
         soln = h_res
         detP = np.linalg.det(P_new)
 
-        return x_new, P_new, detP, soln
+        return pred_state, P_new, detP, soln
 
     def update(self, z):
-        """
-            Runs one time step of the algorithm
-            z: current observation values
+        """Runs one time step of the algorithm
+        
+        z: current observation values
         """
         x, P, detP, soln = self.update_preview(z)
-        # print x[1]
-        # self.x[:, self.k] = x.T
-        # self.P.append(P)
-        # self.detP.append(detP)
-        # self.z[:, self.k] = soln.T
-        self.x = x
-        self.P = P
-        self.detP = detP
-        self.z = soln
-        self.k += 1
-
+        self.current_state = x
+        self.current_cov_estimation = P
+        self.det_cov_estimation = detP
+        self.observation_solution = soln
+        self.n_steps += 1
 
         return soln
 
     def set_state_functions(self, f, F):
+        """Sets state-defining functions
+            
+        setter: Two item tuple with the state function and its Jacobian
         """
-            Sets state-defining functions
-            setter: Two item tuple with the state function and its Jacobian
-        """
-        self.f, self.F = f, F
-
+        self.state_function = f
+        self.state_function_jacobian = F
 
 class KalmanTracker(object):
     """
-        Uses Kalman Filters and assignments with a Hungarian algorithm to keep track
-        of observed objects
+    Uses Kalman Filters and assignments with a Hungarian algorithm to keep track
+    of observed objects
     """
-    def __init__(self, P0, Q, R, state_factory, sensor_factory):
+    def __init__(self, initial_cov_estimation, cov_process_noise, cov_sensors, 
+        state_factory, sensor_factory):
+        """Init a new KalmanTracker
+        
+        """
         self.predictors = [] #List of KalmanThreads
         self.current_predictor_label = 1
-        # {'label': 1, 'predictor': KalmanThread}
         self.strikes = []
 
-        self.P0, self.Q, self.R = P0, Q, R
+        # Covariance matrices
+        self.initial_cov_estimation = initial_cov_estimation
+        self.cov_process_noise = cov_process_noise
+        self.cov_sensors = cov_sensors
         self.state_factory = state_factory
         self.sensor_factory = sensor_factory
-
         self.k = 0
 
-
     def detect(self, observations):
-        # print [predictor['label'] for predictor in self.predictors]
-        #Remove a predictor if it has had too many erroneous walks
-        # for i, strikes in enumerate(self.strikes):
-        #   if strikes > 5:
-        #     del self.strikes[i]
-        #     del self.predictors[i]
-        #     self.current_predictor_label -= 1
+        """Label each observation.
 
-        #update each prediction and form a cost matrix
-
-
+        observations : list of dicts
+        Each dict has the following keys:
+            'x0': 2d array of [theta, omega]
+            'z': 2d array [xtip, ytip, xfol, yfol] (the observation itself)
+            'state_factory_args': list of dt, period
+            'sensor_factory_args': list of length, xfol, yfol
+        
+        We first calculate the "cost matrix", the difference between prediction
+        and data for every possible assignment of prediction to data. Then
+        we use linear_sum_assignment to choose the best possible assignment.
+        Finally we update each predictor with these assignments.
+        
+        """
+        ## Generate the cost matrix
+        # This will store the cost associated with each possible assignment
+        # of observation to predictor
+        #rows of cost matrix represent observations, columns represent predictions
         cost_matrix = np.zeros((len(observations), len(self.predictors)))
 
-        #rows of cost matrix represent observations, columns represent predictions
+        # Calculate every entry in the cost_matrix
         for i, observation_dict in enumerate(observations):
             for j, predictor in enumerate(self.predictors):
                 z = observation_dict['z']
-                state_factory_args, sensor_factory_args = observation_dict["state_factory_args"], observation_dict["sensor_factory_args"]
 
-                f, F = self.state_factory(*state_factory_args)
-                self.predictors[j]['predictor'].set_state_functions(f, F)
+                # Generate state_function, state_function_jacobian using the
+                # data from this observation
+                state_function, state_function_jacobian = self.state_factory(
+                    *observation_dict["state_factory_args"])
 
-                _, _, detP, prediction = self.predictors[j]['predictor'].update_preview(z)
+                # Set the state functions for this predictor
+                self.predictors[j]['predictor'].set_state_functions(
+                    state_function, state_function_jacobian)
+
+                # Get the prediction for this predictor
+                _, _, detP, prediction = self.predictors[j][
+                    'predictor'].update_preview(z)
+
+                # Store the prediction minus the observation in the cost_matrix
                 cost_matrix[i, j] = np.linalg.norm(prediction - z)
 
-        observation_indices, prediction_indices = linear_sum_assignment(cost_matrix)
+        ## Hungarian algorithm
+        observation_indices, prediction_indices = linear_sum_assignment(
+            cost_matrix)
+        
+        ## Update
+        for observation_index, prediction_index in zip(
+            observation_indices, prediction_indices):
+            # Get the observation
+            z = observations[observation_index]['z']
 
-        # preds = []
-        for i in range(len(observation_indices)):
-            observation_index = observation_indices[i]
-            prediction_index = prediction_indices[i]
-
-            observation_dict = observations[observation_index]
-            z = observation_dict['z']
-
-
-
+            # Update the associated predictor
             self.predictors[prediction_index]['predictor'].update(z)
-
-
-        # preds = [preds[i] for i in prediction_indices]
-
-
 
         # Prepare to add new observation if number exceeds predictions
         if len(observations) > len(self.predictors):
@@ -197,71 +201,50 @@ class KalmanTracker(object):
                 observation_dict = observations[i]
                 x0 = observation_dict["x"]
                 self.addPredictor(
-                    1000000, x0,
+                    x0,
                     observation_dict["state_factory_args"],
                     observation_dict["sensor_factory_args"],
                 )
                 prediction_indices = np.append(prediction_indices, i)
 
-
-        #If cost of any assignment is too high, increment strikes...threshold is arbitrary 
+        ## Count strikes
+        # If cost of any assignment is too high, increment strikes...threshold is arbitrary 
         for i, j in zip(observation_indices, prediction_indices):
             cost = cost_matrix[i, j]
-            # print "i:{}\t j:{}\t cost:{}".format(i, j, cost)
-
             if cost > 50:
                 self.strikes[j] += 1
             else:
                 self.strikes[j] = 0
 
-        # for i, row in enumerate(cost_matrix):
-        #   for j, cost in enumerate(row):
-        #     if cost > 150:
-        #       self.strikes[j] += 1
-
-        # Return the label (numerical) of each assignment
+        ## Return the label (numerical) of each assignment
         labels = [self.predictors[i]['label'] for i in prediction_indices]
-
 
         return labels
 
-    def addPredictor(self, t, x0, state_factory_args=[], sensor_factory_args=[]):
-        f, F = self.state_factory(*state_factory_args)
-        h, H = self.sensor_factory(*sensor_factory_args)
+    def addPredictor(self, initial_state, state_factory_args=[], sensor_factory_args=[]):
+        # Generate state and sensor functions
+        state_function, state_function_jacobian = self.state_factory(
+            *state_factory_args)
+        sensor_function, sensor_function_jacobian = self.sensor_factory(
+            *sensor_factory_args)
 
-        k = ExtendedKalmanThread(
-            t,
-            x0,
-            f=f, F=F, h=h, H=H,
-            P0=self.P0, Q=self.Q, R=self.R,
-        )
-
+        # Init a new KalmanThread
+        new_kalman_thread = ExtendedKalmanThread(
+            initial_state, 
+            state_function, state_function_jacobian,
+            sensor_function, sensor_function_jacobian,
+            initial_cov_estimation=self.initial_cov_estimation, 
+            cov_process_noise=self.cov_process_noise, 
+            cov_sensors=self.cov_sensors,
+        )        
+        
+        # Store it
         self.predictors.append(
             {
-                'predictor' : k,
-                'label' : self.current_predictor_label
+            'predictor' : new_kalman_thread,
+            'label' : self.current_predictor_label
             }
         )
 
         self.strikes.append(0)
-
         self.current_predictor_label += 1
-
-
-
-
-
-# observations_dict:
-# {
-#   "x": np.array[[46, 34]]
-#   "z": np.array[[43]]
-#   "sensor_factory_args": {"L": 67}
-#   "state_factory_args": {"dt": 4, "period": 4}
-# }
-
-
-
-
-
-
-
