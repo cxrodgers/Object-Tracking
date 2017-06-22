@@ -1,5 +1,5 @@
 # Run the kalman filter algorithm on whisker data
-
+import argparse
 import os
 import pandas
 import matplotlib.pyplot as plt
@@ -9,6 +9,15 @@ import tables
 import my
 import numpy as np
 from kalman import *
+
+## Parse arguments
+parser = argparse.ArgumentParser(description="""
+    Run the kalman filter on an example whiskers dataset.
+""")
+parser.add_argument("output", 
+    help='Name of the output file containing labeled whiskers')
+args = parser.parse_args()
+output_filename = args.output
 
 ## Factories
 def create_sensor_functions(L, folx, foly):
@@ -72,9 +81,9 @@ R = np.eye(4) * 0.1
 
 #Initialize tracker for observed whiskers
 tracker = KalmanTracker(
-    initial_cov_estimation=P0, 
-    cov_process_noise=Q, 
-    cov_sensors=R,
+    P0=P0, 
+    Q=Q, 
+    R=R,
     state_factory=create_state_functions, 
     sensor_factory=create_sensor_functions,
 )
@@ -160,3 +169,4 @@ for frame, observations_in_frame in mwe_filtered:
 mwe['color_group'] = mwe['ordinal']
 
 # Now pickle mwe and run validate_classification_results on it
+mwe.to_pickle(output_filename)

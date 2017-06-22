@@ -4,16 +4,25 @@ import pandas
 import numpy as np
 import os
 import scipy.optimize
+import argparse
 
-# Load curated results
+## Parse arguments
+parser = argparse.ArgumentParser(description="""
+    Run the kalman filter on an example whiskers dataset.
+""")
+parser.add_argument("results",
+    help='Name of the results file containing labeled whiskers')
+args = parser.parse_args()
+results_filename = args.results
+
+## Load curated results
 curated_filename = os.path.expanduser(
     '~/mnt/nas2_home/whisker/test_bed/161215_KM91/curated')
 curated_df = pandas.read_pickle(curated_filename)
 
 # Load jason's results
-results_filename = os.path.expanduser(
-    '~/mnt/nas2_home/whisker/test_bed/161215_KM91/15000_frames_revised.pickle')
-results_filename = 'results'
+#~ results_filename = os.path.expanduser(
+    #~ '~/mnt/nas2_home/whisker/test_bed/161215_KM91/15000_frames_revised.pickle')
 results = my.misc.pickle_load(results_filename)
 
 # Make labels consistent
