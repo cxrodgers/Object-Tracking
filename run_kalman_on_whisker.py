@@ -81,9 +81,9 @@ R = np.eye(4) * 0.1
 
 #Initialize tracker for observed whiskers
 tracker = KalmanTracker(
-    P0=P0, 
-    Q=Q, 
-    R=R,
+    initial_cov_estimation=P0, 
+    cov_process_noise=Q, 
+    cov_sensors=R,
     state_factory=create_state_functions, 
     sensor_factory=create_sensor_functions,
 )
