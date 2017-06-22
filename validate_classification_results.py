@@ -13,6 +13,7 @@ curated_df = pandas.read_pickle(curated_filename)
 # Load jason's results
 results_filename = os.path.expanduser(
     '~/mnt/nas2_home/whisker/test_bed/161215_KM91/15000_frames_revised.pickle')
+results_filename = 'results'
 results = my.misc.pickle_load(results_filename)
 
 # Make labels consistent
@@ -20,7 +21,7 @@ jres = results[['frame', 'seg', 'color_group']].set_index(['frame', 'seg'])
 cres = curated_df.set_index(['frame', 'seg'])
 
 # Join jason's results onto curated results
-ares = cres.join(jres, rsuffix='_jason')
+ares = cres.join(jres, rsuffix='_jason', how='inner')
 
 # For right now drop the unlabeled ones in the curated dataset
 ares = ares[ares.color_group != -1].copy()
